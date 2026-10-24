@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#050505">
+<title>ISSC M22 Austria .22LR — Tactical Black</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: #050505;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  #canvas-container { width: 100vw; height: 100vh; display: block; touch-action: none; }
+  #canvas-container canvas { display: block; touch-action: none; }
+
+  .ui-overlay {
+    position: absolute;
+    top: max(16px, env(safe-area-inset-top));
+    left: max(16px, env(safe-area-inset-left));
+    pointer-events: none;
+    background: rgba(10, 10, 10, 0.7);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    padding: 14px 18px;
+    border-radius: 10px;
+    color: #fff;
+    border-left: 4px solid #888;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.8);
+    max-width: 280px;
+  }
+  .ui-overlay h1 {
+    font-size: 1.1rem; margin-bottom: 3px;
+    color: #e0e0e0; letter-spacing: 0.5px; font-weight: 700;
+  }
+  .ui-overlay .sub {
+    font-size: 0.68rem; color: #888; margin-bottom: 8px;
+    letter-spacing: 1px; text-transform: uppercase;
+  }
+  .ui-overlay p { font-size: 0.75rem; color: #aaa; line-height: 1.5; }
+
+  .loading {
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ccc; font-size: 1rem;
+    text-align: center; letter-spacing: 3px;
+    pointer-events: none;
+  }
+  .loading .bar {
+    width: 200px; height: 3px;
+    background: rgba(255,255,255,0.08);
+    margin: 12px auto 0; border-radius: 2px;
+    overflow: hidden;
+  }
+  .loading .bar div {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #666, #ccc);
+    transition: width 0.2s;
+  }
+  .hidden { opacity: 0; pointer-events: none; transition: opacity 0.5s; }
+  .error-msg { color: #ff5c5c !important; font-weight: 600; }
+
+  @media (max-width: 600px) {
+    .ui-overlay { padding: 10px 14px; max-width: 220px; }
+    .ui-overlay h1 { font-size: 0.95rem; }
+    .ui-overlay .sub { font-size: 0.62rem; }
+    .ui-overlay p { font-size: 0.68rem; }
+  }
+</style>
+</head>
+<body>
+
+  <div id="canvas-container"></div>
+
+  <div class="ui-overlay" id="ui">
+    <h1>ISSC M22 Austria</h1>
+    <div class="sub">.22 LR — Tactical Black</div>
+    <p>👆 Drag to Rotate &nbsp;|&nbsp; 🤏 Pinch to Zoom</p>
+  </div>
+
+  <div class="loading" id="loader">
+    LOADING
+    <div class="bar"><div id="progress"></div></div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+
+  <script>
+    /* ============================================================
+       0. DEVICE DETECTION
+    ============================================================ */
+    const ua = navigator.userAgent;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    const isIOS    = /iPhone|iPad|iPod/i.test(ua);
+    const isHighEnd = (
+      isIOS ||
+      /Snapdragon 8|SD8|Tensor G[23]|Exynos 2[2-9]|Dimensity 9/i.test(ua) ||
+      (window.devicePixelRatio >= 3 && window.innerWidth >= 390)
+    );
+
+    const QUALITY = {
+      high:   { pixelRatio: Math.min(window.devicePixelRatio, 2),    antialias: true,  envWidth: 2048, envHeight: 1024 },
+      medium: { pixelRatio: Math.min(window.devicePixelRatio, 1.75), antialias: true,  envWidth: 1024, envHeight: 512  },
+      low:    { pixelRatio: 1.5,                                     antialias: false, envWidth: 512,  envHeight: 256  }
+    };
+
+    let quality = isHighEnd ? QUALITY.high : (isMobile ? QUALITY.medium : QUALITY.high);
+
+    /* ============================================================
+       1. SCENE
+    ============================================================ */
+    const container = document.getElementById('canvas-container');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x050505);
+
+    const camera = new THREE.PerspectiveCamera(
+      42, window.innerWidth / window.innerHeight, 0.1, 1000
+    );
+    camera.position.set(0, 1.0, 5);
+
+    const renderer = new THREE.WebGLRenderer({
+      antialias: quality.antialias,
+      alpha: false,
+      powerPreference: 'high-performance',
+      stencil: false
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(quality.pixelRatio);
+    renderer.shadowMap.enabled = false;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.2;
+    container.appendChild(renderer.domElement);
+
+    renderer.domElement.style.touchAction = 'none';
+    renderer.domElement.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+    renderer.domElement.addEventListener('touchmove', e => e.preventDefault(), { passive: false });
+
+    /* ============================================================
+       2. ENVIRONMENT MAP — dark tactical with cool streaks
+    ============================================================ */
+    let envMap = null;
+    function buildEnvironment() {
+      if (envMap) return envMap;
+
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      pmrem.compileEquirectangularShader();
+
+      const c = document.createElement('canvas');
+      c.width = quality.envWidth;
+      c.height = quality.envHeight;
+      const ctx = c.getContext('2d');
+
+      const grad = ctx.createLinearGradient(0, 0, 0, c.height);
+      grad.addColorStop(0.00, '#101015');
+      grad.addColorStop(0.42, '#1a1a22');
+      grad.addColorStop(0.50, '#d0d0d8');
+      grad.addColorStop(0.58, '#2a2a32');
+      grad.addColorStop(0.75, '#101015');
+      grad.addColorStop(1.00, '#050505');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      const sx = c.width / 2048;
+      const sy = c.height / 1024;
+
+      const drawStreak = (x, y, w, h, color, blur) => {
+        ctx.save();
+        ctx.shadowBlur = blur * sx;
+        ctx.shadowColor = color;
+        ctx.fillStyle = color;
+        ctx.fillRect(x * sx, y * sy, w * sx, h * sy);
+        ctx.restore();
+      };
+
+      const streakCount = quality.envWidth >= 1024 ? 6 : 3;
+      const positions = [
+        [150, 320, 60, 380, '#ffffff', 90],
+        [420, 280, 50, 460, '#c8d0ff', 100],
+        [720, 340, 70, 340, '#ffffff', 90],
+        [1050, 300, 55, 420, '#a0b0ff', 100],
+        [1380, 330, 65, 360, '#ffffff', 90],
+        [1700, 310, 50, 400, '#c8d0ff', 100]
+      ];
+      for (let i = 0; i < streakCount; i++) drawStreak(...positions[i]);
+
+      const coolGlow = (cx, cy, r, color) => {
+        const rg = ctx.createRadialGradient(cx * sx, cy * sy, 10 * sx, cx * sx, cy * sy, r * sx);
+        rg.addColorStop(0, color);
+        rg.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = rg;
+        ctx.fillRect((cx - r) * sx, (cy - r) * sy, r * 2 * sx, r * 2 * sy);
+      };
+      coolGlow(300, 500, 400, 'rgba(100,140,255,0.6)');
+      coolGlow(1500, 480, 450, 'rgba(120,160,255,0.5)');
+      coolGlow(900, 700, 350, 'rgba(255,255,255,0.3)');
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.mapping = THREE.EquirectangularReflectionMapping;
+      tex.encoding = THREE.sRGBEncoding;
+
+      envMap = pmrem.fromEquirectangular(tex).texture;
+      tex.dispose();
+      pmrem.dispose();
+      return envMap;
+    }
+
+    envMap = buildEnvironment();
+    scene.environment = envMap;
+
+    /* ============================================================
+       3. PROCEDURAL TEXTURES — stippling, serrations, grip, frame
+    ============================================================ */
+    const textureSize = quality.envWidth >= 1024 ? 512 : 256;
+
+    // --- GRIP STIPPLING (rough bumpy texture, like checkering) ---
+    function makeGripTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = textureSize;
+      const ctx = c.getContext('2d');
+
+      // Dark base
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      // Diamond stippling pattern
+      const step = textureSize / 32;
+      for (let y = 0; y < textureSize; y += step) {
+        for (let x = 0; x < textureSize; x += step) {
+          const offset = (Math.floor(y / step) % 2) * (step / 2);
+          const px = x + offset;
+          const py = y;
+
+          // Raised bump
+          const r = step * 0.35;
+          const grad = ctx.createRadialGradient(px, py, 0, px, py, r);
+          grad.addColorStop(0, '#4a4a4a');
+          grad.addColorStop(0.5, '#2a2a2a');
+          grad.addColorStop(1, '#0a0a0a');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(6, 6);
+      tex.encoding = THREE.sRGBEncoding;
+      return tex;
+    }
+
+    // --- GRIP BUMP MAP (height map for stippling) ---
+    function makeGripBumpMap() {
+      const c = document.createElement('canvas');
+      c.width = c.height = textureSize;
+      const ctx = c.getContext('2d');
+
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      const step = textureSize / 32;
+      for (let y = 0; y < textureSize; y += step) {
+        for (let x = 0; x < textureSize; x += step) {
+          const offset = (Math.floor(y / step) % 2) * (step / 2);
+          const px = x + offset;
+          const py = y;
+          const r = step * 0.35;
+          const grad = ctx.createRadialGradient(px, py, 0, px, py, r);
+          grad.addColorStop(0, '#ffffff');
+          grad.addColorStop(0.5, '#888888');
+          grad.addColorStop(1, '#000000');
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(px, py, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(6, 6);
+      return tex;
+    }
+
+    // --- SLIDE SERRATIONS (vertical lines for gripping) ---
+    function makeSlideTexture() {
+      const c = document.createElement('canvas');
+      c.width = textureSize;
+      c.height = textureSize;
+      const ctx = c.getContext('2d');
+
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      // Vertical serration lines
+      const lineCount = 20;
+      const lineWidth = textureSize / lineCount;
+      for (let i = 0; i < lineCount; i++) {
+        const x = i * lineWidth;
+        // Groove
+        ctx.fillStyle = '#050505';
+        ctx.fillRect(x, 0, lineWidth * 0.4, c.height);
+        // Highlight edge
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(x + lineWidth * 0.4, 0, lineWidth * 0.1, c.height);
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1, 1);
+      tex.encoding = THREE.sRGBEncoding;
+      return tex;
+    }
+
+    // --- SLIDE BUMP MAP (serrations height) ---
+    function makeSlideBumpMap() {
+      const c = document.createElement('canvas');
+      c.width = c.height = textureSize;
+      const ctx = c.getContext('2d');
+
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      const lineCount = 20;
+      const lineWidth = textureSize / lineCount;
+      for (let i = 0; i < lineCount; i++) {
+        const x = i * lineWidth;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x + lineWidth * 0.4, 0, lineWidth * 0.1, c.height);
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1, 1);
+      return tex;
+    }
+
+    // --- FRAME TEXTURE (fine rough finish) ---
+    function makeFrameTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = textureSize;
+      const ctx = c.getContext('2d');
+
+      ctx.fillStyle = '#1a1a1a';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      // Fine noise speckles
+      const imgData = ctx.getImageData(0, 0, c.width, c.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const v = 20 + Math.random() * 30;
+        data[i] = v;
+        data[i + 1] = v;
+        data[i + 2] = v;
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(3, 3);
+      tex.encoding = THREE.sRGBEncoding;
+      return tex;
+    }
+
+    const gripTex       = makeGripTexture();
+    const gripBump      = makeGripBumpMap();
+    const slideTex      = makeSlideTexture();
+    const slideBump     = makeSlideBumpMap();
+    const frameTex      = makeFrameTexture();
+
+    /* ============================================================
+       4. LIGHTING — studio tactical
+    ============================================================ */
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.4);
+    keyLight.position.set(6, 10, 7);
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0xaabbff, 2.2);
+    rimLight.position.set(-7, 4, -6);
+    scene.add(rimLight);
+
+    const fillLight = new THREE.PointLight(0xffffff, 1.2, 30, 2);
+    fillLight.position.set(-4, 3, 6);
+    scene.add(fillLight);
+
+    const bounce = new THREE.PointLight(0x6688ff, 0.8, 18, 2);
+    bounce.position.set(0, -3, 0);
+    scene.add(bounce);
+
+    /* ============================================================
+       5. CONTROLS
+    ============================================================ */
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = isMobile ? 0.1 : 0.06;
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = isMobile ? 1.0 : 1.4;
+    controls.enablePan = false;
+    controls.minDistance = 1.5;
+    controls.maxDistance = 15;
+    controls.maxPolarAngle = Math.PI * 0.85;
+    controls.minPolarAngle = Math.PI * 0.15;
+    controls.rotateSpeed = isMobile ? 0.6 : 1.0;
+    controls.zoomSpeed = isMobile ? 0.7 : 1.0;
+
+    let autoRotateTimer;
+    controls.addEventListener('start', () => {
+      controls.autoRotate = false;
+      clearTimeout(autoRotateTimer);
+    });
+    controls.addEventListener('end', () => {
+      clearTimeout(autoRotateTimer);
+      autoRotateTimer = setTimeout(() => controls.autoRotate = true, 3000);
+    });
+
+    /* ============================================================
+       6. LOAD MODEL — ISSC M22 Austria .22LR
+    ============================================================ */
+    const loaderEl   = document.getElementById('loader');
+    const progressEl = document.getElementById('progress');
+    const uiEl       = document.getElementById('ui');
+
+    const loader = new THREE.GLTFLoader();
+    let gunGroup = null;
+    let baseY = 0;
+
+    loader.load(
+      'isscm22.glb',
+
+      function (gltf) {
+        const gunModel = gltf.scene;
+
+        // ---- Detect longest axis ----
+        const rawBox  = new THREE.Box3().setFromObject(gunModel);
+        const rawSize = rawBox.getSize(new THREE.Vector3());
+
+        // Pistol: barrel usually points forward (Z or X)
+        if (rawSize.y > rawSize.x && rawSize.y > rawSize.z) {
+          gunModel.rotation.z = -Math.PI / 2;
+        } else if (rawSize.z > rawSize.x && rawSize.z > rawSize.y) {
+          gunModel.rotation.y = Math.PI / 2;
+        }
+
+        // Fire position — barrel toward camera
+        gunModel.rotation.y += Math.PI / 2;
+
+        // Re-center
+        gunModel.updateMatrixWorld(true);
+        const box    = new THREE.Box3().setFromObject(gunModel);
+        const center = box.getCenter(new THREE.Vector3());
+        const size   = box.getSize(new THREE.Vector3());
+        gunModel.position.sub(center);
+
+        // ---- SMART MATERIAL with procedural textures ----
+        gunModel.traverse((node) => {
+          if (!node.isMesh) return;
+          node.castShadow = false;
+          node.receiveShadow = false;
+          node.frustumCulled = true;
+
+          const name = (node.name + ' ' + (node.material?.name || '')).toLowerCase();
+
+          const isGrip  = /grip|handle|stock|butt/.test(name);
+          const isSlide = /slide|barrel|upper|chamber/.test(name);
+          const isFrame = /frame|lower|trigger|guard/.test(name);
+
+          if (isGrip) {
+            // Grip: stippled texture — rough rubbery feel
+            node.material = new THREE.MeshStandardMaterial({
+              color: 0x0a0a0a,
+              metalness: 0.15,
+              roughness: 0.85,
+              map: gripTex,
+              bumpMap: gripBump,
+              bumpScale: 0.15,
+              envMap,
+              envMapIntensity: 1.0
+            });
+          } else if (isSlide) {
+            // Slide: black metal + vertical serrations
+            node.material = new THREE.MeshStandardMaterial({
+              color: 0x080808,
+              metalness: 1.0,
+              roughness: 0.15,
+              map: slideTex,
+              bumpMap: slideBump,
+              bumpScale: 0.08,
+              envMap,
+              envMapIntensity: 2.5
+            });
+          } else if (isFrame) {
+            // Frame: fine rough polymer finish
+            node.material = new THREE.MeshStandardMaterial({
+              color: 0x0c0c0c,
+              metalness: 0.35,
+              roughness: 0.55,
+              map: frameTex,
+              envMap,
+              envMapIntensity: 1.5
+            });
+          } else {
+            // Default: glossy black metal
+            node.material = new THREE.MeshStandardMaterial({
+              color: 0x0a0a0a,
+              metalness: 1.0,
+              roughness: 0.05,
+              envMap,
+              envMapIntensity: 3.0
+            });
+          }
+        });
+
+        // Wrap in group for floating bob
+        gunGroup = new THREE.Group();
+        gunGroup.add(gunModel);
+        scene.add(gunGroup);
+
+        // Auto-frame camera
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const dist   = maxDim * 1.9;
+        camera.position.set(0, maxDim * 0.3, dist);
+        camera.near = maxDim * 0.01;
+        camera.far  = maxDim * 200;
+        camera.updateProjectionMatrix();
+
+        controls.target.set(0, 0, 0);
+        controls.minDistance = maxDim * 0.6;
+        controls.maxDistance = maxDim * 5;
+        controls.update();
+
+        baseY = 0;
+        gunGroup.position.y = baseY;
+
+        loaderEl.classList.add('hidden');
+        setTimeout(() => { if (loaderEl.parentNode) loaderEl.remove(); }, 500);
+      },
+
+      function (xhr) {
+        if (xhr.total) {
+          progressEl.style.width = Math.round((xhr.loaded / xhr.total) * 100) + '%';
+        }
+      },
+
+      function (error) {
+        console.error('GLB load failed:', error);
+        loaderEl.innerHTML = '<p class="error-msg">⚠️ Failed to load isscm22.glb<br><span style="font-size:0.8rem;color:#888;">File should be in same folder as this HTML</span></p>';
+        uiEl.querySelector('p').textContent = 'Model missing — check console.';
+      }
+    );
+
+    /* ============================================================
+       7. RENDER LOOP
+    ============================================================ */
+    const clock = new THREE.Clock();
+    let frameCount = 0;
+    let fpsCheckTime = 0;
+    let lowFpsFrames = 0;
+    let qualityDropped = false;
+
+    const animThrottle = quality === QUALITY.low ? 2 : 1;
+    let frameIdx = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      frameIdx++;
+      const doAnim = frameIdx % animThrottle === 0;
+      const t = clock.getElapsedTime();
+
+      if (doAnim && gunGroup) {
+        gunGroup.position.y = baseY + Math.sin(t * 1.1) * 0.05;
+        gunGroup.rotation.z = Math.sin(t * 0.7) * 0.012;
+      }
+
+      if (doAnim) {
+        rimLight.intensity = 2.2 + Math.sin(t * 1.3) * 0.3;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+
+      // FPS monitor
+      frameCount++;
+      const now = performance.now();
+      if (now - fpsCheckTime >= 2000) {
+        const fps = (frameCount * 1000) / (now - fpsCheckTime);
+        if (fps < 30 && !qualityDropped) {
+          lowFpsFrames++;
+          if (lowFpsFrames >= 2) {
+            qualityDropped = true;
+            renderer.setPixelRatio(Math.min(quality.pixelRatio, 1.25));
+            console.log('⚡ Quality auto-reduced for smoothness');
+          }
+        } else {
+          lowFpsFrames = 0;
+        }
+        frameCount = 0;
+        fpsCheckTime = now;
+      }
+    }
+    animate();
+
+    /* ============================================================
+       8. RESIZE + ORIENTATION
+    ============================================================ */
+    function onResize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality.pixelRatio));
+    }
+
+    window.addEventListener('resize', onResize);
+    window.addEventListener('orientationchange', () => {
+      setTimeout(onResize, 200);
+    });
+
+    document.addEventListener('contextmenu', e => e.preventDefault());
+
+    let lastTouch = 0;
+    document.addEventListener('touchend', e => {
+      const now = Date.now();
+      if (now - lastTouch <= 300) e.preventDefault();
+      lastTouch = now;
+    }, { passive: false });
+
+    /* ============================================================
+       9. PAGE VISIBILITY
+    ============================================================ */
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        clock.stop();
+      } else {
+        clock.start();
+      }
+    });
+  </script>
+</body>
+</html>
